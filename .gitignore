@@ -1,0 +1,7 @@
+part_seg/log
+part_seg/results
+data
+*/__pycache__
+*/.ipynb_checkpoints
+*.so*
+*.pyc

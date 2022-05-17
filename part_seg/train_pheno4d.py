@@ -15,20 +15,27 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import provider
 import tf_util
-import part_dataset_all_normal
+from pheno4d_dataset_split import Pheno4dDataset
+from sklearn.metrics import recall_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import confusion_matrix
+import json
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
 parser.add_argument('--model', default='pointnet2_part_seg', help='Model name [default: model]')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
-parser.add_argument('--num_point', type=int, default=2048, help='Point Number [default: 2048]')
+parser.add_argument('--num_point', type=int, default=10000, help='Point Number [default: 10000]')
 parser.add_argument('--max_epoch', type=int, default=201, help='Epoch to run [default: 201]')
-parser.add_argument('--batch_size', type=int, default=32, help='Batch Size during training [default: 32]')
+parser.add_argument('--batch_size', type=int, default=16, help='Batch Size during training [default: 16]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--momentum', type=float, default=0.9, help='Initial learning rate [default: 0.9]')
 parser.add_argument('--optimizer', default='adam', help='adam or momentum [default: adam]')
 parser.add_argument('--decay_step', type=int, default=200000, help='Decay step for lr decay [default: 200000]')
 parser.add_argument('--decay_rate', type=float, default=0.7, help='Decay rate for lr decay [default: 0.7]')
+parser.add_argument('--train_sample', type=float, default=1.0)
+parser.add_argument('--category', default='maize')
+parser.add_argument('--random_state', type=int, default=42)
 FLAGS = parser.parse_args()
 
 EPOCH_CNT = 0
@@ -42,6 +49,9 @@ MOMENTUM = FLAGS.momentum
 OPTIMIZER = FLAGS.optimizer
 DECAY_STEP = FLAGS.decay_step
 DECAY_RATE = FLAGS.decay_rate
+TRAIN_SAMPLE = FLAGS.train_sample
+CATEGORY = FLAGS.category
+RANDOM_STATE = FLAGS.random_state
 
 MODEL = importlib.import_module(FLAGS.model) # import network module
 MODEL_FILE = os.path.join(ROOT_DIR, 'models', FLAGS.model+'.py')
@@ -59,12 +69,12 @@ BN_DECAY_CLIP = 0.99
 
 HOSTNAME = socket.gethostname()
 
-NUM_CLASSES = 50
+NUM_CLASSES = 2
 
-# Shapenet official train/test split
-DATA_PATH = os.path.join(ROOT_DIR, 'data', 'shapenetcore_partanno_segmentation_benchmark_v0_normal')
-TRAIN_DATASET = part_dataset_all_normal.PartNormalDataset(root=DATA_PATH, npoints=NUM_POINT, classification=False, split='trainval')
-TEST_DATASET = part_dataset_all_normal.PartNormalDataset(root=DATA_PATH, npoints=NUM_POINT, classification=False, split='test')
+pheno4d_dataset = Pheno4dDataset()
+TRAIN_DATASET, TEST_DATASET = pheno4d_dataset.pheno4d_train_test_split(npoints=NUM_POINT, category=CATEGORY, train_sample=TRAIN_SAMPLE, random_state=RANDOM_STATE)
+
+epochs_log = []
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
@@ -171,6 +181,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     for i in range(bsize):
         ps,normal,seg = dataset[idxs[i+start_idx]]
+        batch_label[i] = np.zeros((len(ps)), dtype=np.int32)
         batch_data[i,:,0:3] = ps
         batch_data[i,:,3:6] = normal
         batch_label[i,:] = seg
@@ -234,6 +245,12 @@ def eval_one_epoch(sess, ops, test_writer):
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
 
+    # add
+    total_part_ious = [0.0 for _ in range(NUM_CLASSES)]
+    total_part_recalls = [0.0 for _ in range(NUM_CLASSES)]
+    total_part_precisions = [0.0 for _ in range(NUM_CLASSES)]
+    total_matrix = np.zeros((2,2))
+
     seg_classes = TEST_DATASET.seg_classes
     shape_ious = {cat:[] for cat in seg_classes.keys()}
     seg_label_to_cat = {} # {0:Airplane, 1:Airplane, ...49:Table}
@@ -244,7 +261,7 @@ def eval_one_epoch(sess, ops, test_writer):
     log_string(str(datetime.now()))
     log_string('---- EPOCH %03d EVALUATION ----'%(EPOCH_CNT))
     
-    batch_data = np.zeros((BATCH_SIZE, NUM_POINT, 3))
+    batch_data = np.zeros((BATCH_SIZE, NUM_POINT, 6))
     batch_label = np.zeros((BATCH_SIZE, NUM_POINT)).astype(np.int32)
     for batch_idx in range(int(num_batches)):
         if batch_idx %20==0:
@@ -278,11 +295,13 @@ def eval_one_epoch(sess, ops, test_writer):
             cat = seg_label_to_cat[cur_batch_label[i,0]]
             logits = cur_pred_val_logits[i,:,:]
             cur_pred_val[i,:] = np.argmax(logits[:,seg_classes[cat]], 1) + seg_classes[cat][0]
+
         correct = np.sum(cur_pred_val == cur_batch_label)
         total_correct += correct
         total_seen += (cur_batch_size*NUM_POINT)
         if cur_batch_size==BATCH_SIZE:
             loss_sum += loss_val
+        #loss_sum += loss_val
         for l in range(NUM_CLASSES):
             total_seen_class[l] += np.sum(cur_batch_label==l)
             total_correct_class[l] += (np.sum((cur_pred_val==l) & (cur_batch_label==l)))
@@ -292,32 +311,130 @@ def eval_one_epoch(sess, ops, test_writer):
             segl = cur_batch_label[i,:] 
             cat = seg_label_to_cat[segl[0]]
             part_ious = [0.0 for _ in range(len(seg_classes[cat]))]
+            part_recalls = [0.0 for _ in range(len(seg_classes[cat]))]
+            part_precisions = [0.0 for _ in range(len(seg_classes[cat]))]
             for l in seg_classes[cat]:
                 if (np.sum(segl==l) == 0) and (np.sum(segp==l) == 0): # part is not present, no prediction as well
                     part_ious[l-seg_classes[cat][0]] = 1.0
                 else:
                     part_ious[l-seg_classes[cat][0]] = np.sum((segl==l) & (segp==l)) / float(np.sum((segl==l) | (segp==l)))
+            
+            matrix = confusion_matrix(segl, segp)
+            TP = matrix[1][1]
+            TN = matrix[0][0]
+            FP = matrix[0][1]
+            FN = matrix[1][0]
+            part_recalls = np.diag(matrix) / np.sum(matrix, axis = 1)
+            part_precisions = np.diag(matrix) / np.sum(matrix, axis = 0)
+            total_matrix += matrix
+
+            total_part_ious = np.sum([total_part_ious, part_ious],axis=0)
+            total_part_recalls = np.sum([total_part_recalls, part_recalls],axis=0)
+            total_part_precisions = np.sum([total_part_precisions, part_precisions],axis=0)
             shape_ious[cat].append(np.mean(part_ious))
 
+    epoch_stats = {} # for json output
+    
     all_shape_ious = []
     for cat in shape_ious.keys():
         for iou in shape_ious[cat]:
             all_shape_ious.append(iou)
         shape_ious[cat] = np.mean(list(shape_ious[cat]))
     mean_shape_ious = np.mean(list(shape_ious.values()))
-    log_string('eval mean loss: %f' % (loss_sum / float(len(TEST_DATASET)/BATCH_SIZE)))
-    log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
-    log_string('eval avg class acc: %f' % (np.mean(list(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)))))
+    mean_loss = loss_sum / float(len(TEST_DATASET)/BATCH_SIZE)
+    accuracy = total_correct / float(total_seen)
+    avg_class_accuracy = np.mean(list(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)))
+
+    log_string('eval mean loss: %f' % (mean_loss))
+    log_string('eval accuracy: %f' % (accuracy))
+    log_string('eval avg class acc: %f' % (avg_class_accuracy))
+
     for cat in sorted(shape_ious.keys()):
         log_string('eval mIoU of %s:\t %f'%(cat, shape_ious[cat]))
+
+    mean_miou_all = np.mean(list(all_shape_ious))
     log_string('eval mean mIoU: %f' % (mean_shape_ious))
-    log_string('eval mean mIoU (all shapes): %f' % (np.mean(list(all_shape_ious))))
-         
+    log_string('eval mean mIoU (all shapes): %f' % (mean_miou_all))
+
+    # additional metrics
+    total_part_ious /= float(len(TEST_DATASET))
+    total_part_recalls /= float(len(TEST_DATASET))
+    total_part_precisions /= float(len(TEST_DATASET))
+
+    stem_iou = total_part_ious[0]
+    leaf_iou = total_part_ious[1]
+    stem_recall = total_part_recalls[0]
+    leaf_recall = total_part_recalls[1]
+    stem_precision = total_part_precisions[0]
+    leaf_precision = total_part_precisions[1]
+    log_string('stem_iou: %f' % stem_iou)
+    log_string('leaf_iou: %f' % leaf_iou)
+    log_string('stem_recall: %f' % stem_recall)
+    log_string('leaf_recall: %f' % leaf_recall)
+    log_string('stem_precision: %f' % stem_precision)
+    log_string('leaf_precision: %f' % leaf_precision)
+
+    total_matrix /= float(len(TEST_DATASET))
+    log_string('confusion matrix: \n%s' % str(total_matrix))
+    TN = total_matrix[0][0]
+    FP = total_matrix[0][1]
+    FN = total_matrix[1][0]
+    TP = total_matrix[1][1]
+    log_string('TN: %f' % TN)
+    log_string('FP: %f' % FP)
+    log_string('FN: %f' % FN)
+    log_string('TP: %f' % TP)
+
+    epoch_stats['accuracy'] = accuracy
+    epoch_stats['miou'] = mean_shape_ious
+    epoch_stats['stem_iou'] = stem_iou
+    epoch_stats['leaf_iou'] = leaf_iou
+    epoch_stats['stem_recall'] = stem_recall
+    epoch_stats['leaf_recall'] = leaf_recall
+    epoch_stats['stem_precision'] = stem_precision
+    epoch_stats['leaf_precision'] = leaf_precision
+    epoch_stats['tn'] = TN
+    epoch_stats['fp'] = FP
+    epoch_stats['fn'] = FN
+    epoch_stats['tp'] = TP
+
+    epochs_log.append(epoch_stats.copy())
+
     EPOCH_CNT += 1
     return total_correct/float(total_seen)
 
+def get_log_specs():
+  log = (
+    'CATEGORY: ' + CATEGORY +
+    '\nTRAIN_SAMPLE: ' + str(TRAIN_SAMPLE) +
+    '\nRANDOM_STATE: ' + str(RANDOM_STATE) +
+    '\nNUM_POINT: ' + str(NUM_POINT) +
+    '\nBATCH_SIZE: ' + str(BATCH_SIZE) +
+    '\nMAX_EPOCH: ' + str(MAX_EPOCH) +
+    '\nLOG_DIR: ' + str(LOG_DIR) +
+    '\n' +
+    pheno4d_dataset.get_log_stats()
+  )
+  return log
 
 if __name__ == "__main__":
+    start_time = datetime.now()
     log_string('pid: %s'%(str(os.getpid())))
+    print(get_log_specs())
     train()
+    end_time = datetime.now()
+    log_string(get_log_specs())
+    log_string(str(start_time))
+    log_string(str(end_time))
+    log_string(str(end_time-start_time))
     LOG_FOUT.close()
+
+    # output to json
+    data = {}
+    data['epochs'] = epochs_log
+    json_data = json.dumps(data)
+    print(json_data)
+    LOG_JSON = open(os.path.join(LOG_DIR, 'epochs.json'), 'w')
+    LOG_JSON.write(json_data)
+    LOG_JSON.flush()
+    LOG_JSON.close()

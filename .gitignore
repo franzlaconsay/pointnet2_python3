@@ -1,6 +1,7 @@
 part_seg/log
 part_seg/results
-data
+data/*
+!data/pheno4d_mt/
 */__pycache__
 */.ipynb_checkpoints
 *.so*

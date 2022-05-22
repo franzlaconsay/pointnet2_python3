@@ -65,11 +65,11 @@ class PartNormalDataset():
             fns = sorted(os.listdir(dir_point))
             #print(fns[0][0:-11])
             if split=='trainval':
-                fns = [fn for fn in fns if ((fn[0:-9] in maize_train) or (fn[0:-9] in tomato_train))]
+                fns = [fn for fn in fns if ((fn[0:-11] in maize_train) or (fn[0:-11] in tomato_train))]
                 samples = math.ceil(len(fns) * train_sample)
                 fns = sample(fns, samples)
             elif split=='test':
-                fns = [fn for fn in fns if ((fn[0:-9] in maize_test) or (fn[0:-9] in tomato_test))]
+                fns = [fn for fn in fns if ((fn[0:-11] in maize_test) or (fn[0:-11] in tomato_test))]
             else:
                 print('Unknown split: %s. Exiting..'%(split))
                 exit(-1)

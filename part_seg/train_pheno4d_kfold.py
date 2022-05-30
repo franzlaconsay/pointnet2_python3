@@ -382,7 +382,7 @@ if __name__ == "__main__":
 
                 BATCH_SIZE = 16
                 NUM_POINT = 10000
-                MAX_EPOCH = max_epochs
+                MAX_EPOCH = int(max_epochs)
                 BASE_LEARNING_RATE = 0.001
                 GPU_INDEX = 0
                 MOMENTUM = 0.9

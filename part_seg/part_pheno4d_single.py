@@ -20,8 +20,7 @@ def pc_normalize(pc):
     return pc
 
 class PartNormalDataset():
-    def __init__(self, root = '../data/single', npoints = 2500, classification = False, split='train', normalize=True, return_cls_label = False, train_sample = 1, category='maize_tomato'):
-        self.npoints = npoints
+    def __init__(self, filename, root = '../data', classification = False, normalize=True, return_cls_label = False):
         self.root = root
         self.cat = {}
         
@@ -31,29 +30,8 @@ class PartNormalDataset():
         
         self.cat = {
           # 'class_name' : 'class_folder',
-          'Maize' : 'Maize',
-          'Tomato' : 'Tomato'
+          'Single' : 'single',
         }
-        maize_train = ['M01', 'M02', 'M03', 'M04', 'M05']
-        maize_test = ['M06', 'M07']
-        tomato_train = ['T01', 'T02', 'T03', 'T04', 'T05']
-        tomato_test = ['T06', 'T07']
-
-        if category == 'maize':
-          self.cat = {'Maize' : 'Maize'}
-          maize_train = ['M01', 'M02', 'M03', 'M04', 'M05']
-          maize_test = ['M06', 'M07']
-          tomato_train = []
-          tomato_test = []
-          self.root = '../data/pheno4d_mt'
-
-        if category == 'tomato':
-          self.cat = {'Tomato' : 'Tomato'}
-          maize_train = []
-          maize_test = []
-          tomato_train = ['T01', 'T02', 'T03', 'T04', 'T05']
-          tomato_test = ['T06', 'T07']
-          self.root = '../data/pheno4d_mt'
 
         #print(self.cat)
             
@@ -62,17 +40,7 @@ class PartNormalDataset():
             #print('category', item)
             self.meta[item] = []
             dir_point = os.path.join(self.root, self.cat[item])
-            fns = sorted(os.listdir(dir_point))
-            #print(fns[0][0:-11])
-            if split=='trainval':
-                fns = [fn for fn in fns if ((fn[0:-11] in maize_train) or (fn[0:-11] in tomato_train))]
-                samples = math.ceil(len(fns) * train_sample)
-                fns = sample(fns, samples)
-            elif split=='test':
-                fns = [fn for fn in fns if ((fn[0:-11] in maize_test) or (fn[0:-11] in tomato_test))]
-            else:
-                print('Unknown split: %s. Exiting..'%(split))
-                exit(-1)
+            fns = [filename]            
                 
             #print(os.path.basename(fns))
             for fn in fns:
@@ -88,13 +56,7 @@ class PartNormalDataset():
          
         self.classes = dict(zip(self.cat, range(len(self.cat))))  
         # Mapping from category ('Chair') to a list of int [10,11,12,13] as segmentation labels
-        self.seg_classes = {'Maize': [0, 1], 'Tomato': [2, 3]}
-
-        if category == 'maize':
-          self.seg_classes = {'Maize': [0, 1]}
-
-        if category == 'tomato':
-          self.seg_classes = {'Tomato': [0, 1]}
+        self.seg_classes = {'Single': [0, 1]}
 
         for cat in sorted(self.seg_classes.keys()):
             print(cat, self.seg_classes[cat])
@@ -118,13 +80,7 @@ class PartNormalDataset():
             seg = data[:,-1].astype(np.int32)
             if len(self.cache) < self.cache_size:
                 self.cache[index] = (point_set, normal, seg, cls)
-                
-        
-        choice = np.random.choice(len(seg), self.npoints, replace=True)
-        #resample
-        point_set = point_set[choice, :]
-        seg = seg[choice]
-        normal = normal[choice,:]
+
         if self.classification:
             return point_set, normal, cls
         else:
@@ -138,7 +94,7 @@ class PartNormalDataset():
 
 
 if __name__ == '__main__':
-    d = PartNormalDataset(split='trainval', npoints=10000, train_sample=1.0)
+    d = PartNormalDataset(filename='M01_0313_a.txt')
     print(len(d))
 
     i = 0

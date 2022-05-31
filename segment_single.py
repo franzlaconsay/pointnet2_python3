@@ -3,22 +3,29 @@ import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--file', required=True)
-parser.add_argument('--label_base', type=int, default=1)
+parser.add_argument('--label_base', type=int, default=0)
+parser.add_argument('--category')
 FLAGS = parser.parse_args()
 
 FILE = FLAGS.file
+filename, file_extension = os.path.splitext(FILE)
+PLY_FILE = FILE
+TXT_FILE = filename + '.txt'
+TXT_FILE_SEGMENTED = filename + '_segmented.txt'
+PLY_FILE_SEGMENTED = filename + '_segmented.ply'
 LABEL_BASE = FLAGS.label_base
-CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
-FOLDER = os.path.join(CURRENT_PATH, 'data', 'single')
+CATEGORY = FLAGS.category
+ROOT_PATH = os.path.dirname(os.path.realpath(__file__))
+SINGLE_FOLDER = os.path.join(ROOT_PATH, 'data', 'single')
+MODEL_PATH = os.path.join(ROOT_PATH, 'part_seg', '%s_100_k2' % CATEGORY)
+LOG_DIR = 'log_single'
 ply_header = []
 num_point = 0
 
 
 def ply_to_txt():
-  base_filename = os.path.basename(FILE)
-  filename, file_extension = os.path.splitext(base_filename)
-  filepath = os.path.join(FOLDER, filename + '.txt')
-  input_file = os.path.join(FOLDER, FILE)
+  input_file = os.path.join(SINGLE_FOLDER, PLY_FILE)
+  output_filepath = os.path.join(SINGLE_FOLDER, TXT_FILE)
   global num_point
   with open(input_file, 'r') as fid:
     lines = []
@@ -38,10 +45,31 @@ def ply_to_txt():
       num_point += 1
 
   content = '\n'.join(lines)
-  with open(filepath, 'w') as fid:
+  with open(output_filepath, 'w') as fid:
       fid.write(content)
+
+def txt_to_ply():
+  input_file = os.path.join(SINGLE_FOLDER, TXT_FILE_SEGMENTED)
+  output_filepath = os.path.join(SINGLE_FOLDER, PLY_FILE_SEGMENTED)
+  global num_point
+  with open(input_file, 'r') as fid:
+    lines = []
+    for line in fid:
+      if line == '\n': continue
+      nums = line.split()
+      lines.append(' '.join(nums))
+
+  content = '\n'.join(ply_header + lines)
+  with open(output_filepath, 'w') as fid:
+      fid.write(content)
+
+def segment():
+  py_script = os.path.join('part_seg', 'evaluate_pheno4d_single.py')
+  cmd = 'python %s --filename %s --num_point %s --category %s --log_dir %s --model_path %s' % (py_script, TXT_FILE_SEGMENTED, num_point, CATEGORY, LOG_DIR, MODEL_PATH)
+  print(cmd)
+  os.system(cmd)
 
 if __name__ == '__main__':
   ply_to_txt()
-  print(num_point)
-  #print('\n'.join(ply_header))
+  segment()
+  txt_to_ply()

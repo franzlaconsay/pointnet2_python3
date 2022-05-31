@@ -1,8 +1,6 @@
 import argparse
 import os
 
-from train import ROOT_DIR
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--file', required=True)
 parser.add_argument('--label_base', type=int, default=0)
@@ -66,12 +64,12 @@ def txt_to_ply():
       fid.write(content)
 
 def segment():
-  os.chdir(os.path.join(ROOT_DIR, 'part_seg'))
+  os.chdir(os.path.join(ROOT_PATH, 'part_seg'))
   py_script = 'evaluate_pheno4d_single.py'
   cmd = 'python %s --filename %s --num_point %s --category %s --log_dir %s --model_path %s' % (py_script, TXT_FILE, num_point, CATEGORY, LOG_DIR, MODEL_PATH)
   print(cmd)
   os.system(cmd)
-  os.chdir(ROOT_DIR)
+  os.chdir(ROOT_PATH)
 
 if __name__ == '__main__':
   ply_to_txt()

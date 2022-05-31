@@ -71,6 +71,7 @@ def segment():
   cmd = 'python %s --filename %s --num_point %s --category %s --log_dir %s --model_path %s' % (py_script, TXT_FILE, num_point, CATEGORY, LOG_DIR, MODEL_PATH)
   print(cmd)
   os.system(cmd)
+  os.chdir(ROOT_DIR)
 
 if __name__ == '__main__':
   ply_to_txt()

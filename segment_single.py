@@ -71,7 +71,14 @@ def segment():
   os.system(cmd)
   os.chdir(ROOT_PATH)
 
+def remove_temps():
+  txt_file = os.path.join(SINGLE_FOLDER, TXT_FILE)
+  txt_file_segmented = os.path.join(SINGLE_FOLDER, TXT_FILE_SEGMENTED)
+  os.remove(txt_file)
+  os.remove(txt_file_segmented)
+
 if __name__ == '__main__':
   ply_to_txt()
   segment()
   txt_to_ply()
+  remove_temps()

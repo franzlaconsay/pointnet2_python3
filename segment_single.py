@@ -65,7 +65,7 @@ def txt_to_ply():
 
 def segment():
   py_script = os.path.join('part_seg', 'evaluate_pheno4d_single.py')
-  cmd = 'python %s --filename %s --num_point %s --category %s --log_dir %s --model_path %s' % (py_script, TXT_FILE_SEGMENTED, num_point, CATEGORY, LOG_DIR, MODEL_PATH)
+  cmd = 'python %s --filename %s --num_point %s --category %s --log_dir %s --model_path %s' % (py_script, TXT_FILE, num_point, CATEGORY, LOG_DIR, MODEL_PATH)
   print(cmd)
   os.system(cmd)
 
